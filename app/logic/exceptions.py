@@ -22,6 +22,16 @@ class CompanyAlreadyExistsError(BaseCustomError):
     def __init__(self, message: str):
         super().__init__(message, "COMPANY_ALREADY_EXISTS")
 
+class UserNotFoundError(BaseCustomError):
+    """Raised when a user is not found"""
+    def __init__(self, message: str):
+        super().__init__(message, "USER_NOT_FOUND")
+
+class UserAlreadyExistsError(BaseCustomError):
+    """Raised when trying to create a user that already exists"""
+    def __init__(self, message: str):
+        super().__init__(message, "USER_ALREADY_EXISTS")
+
 class ValidationError(BaseCustomError):
     """Raised when validation fails"""
     def __init__(self, message: str):

@@ -2,8 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database.databse import Base, engine
 from app.api import api_router
+from app.database.migration import run_migration
 
-Base.metadata.create_all(bind=engine)
+# Run database migration on startup
+print("Running database migration...")
+run_migration()
 
 app = FastAPI(
     title="Employee Expense Management API",

@@ -4,6 +4,7 @@ from sqlalchemy import func, or_, and_
 from datetime import datetime
 
 from app.database.models.users import Company
+from app.database.migration import safe_getattr, safe_setattr, has_column
 from app.ReqResModels.companymodels import (
     CreateCompanyRequest, 
     UpdateCompanyRequest, 
@@ -30,12 +31,14 @@ class CompanyService:
                 raise CompanyAlreadyExistsError(f"Company with name '{request.name}' already exists")
             
             # Create new company
-            db_company = Company(
-                name=request.name,
-                country=request.country,
-                currency_code=request.currency_code,
-                created_at=datetime.utcnow()
-            )
+            company_data = {
+                "name": request.name,
+                "country": request.country,
+                "currency_code": request.currency_code,
+                "created_at": datetime.utcnow()
+            }
+            
+            db_company = Company(**company_data)
             
             db.add(db_company)
             db.commit()
@@ -78,9 +81,11 @@ class CompanyService:
             update_data = request.model_dump(exclude_unset=True)
             for field, value in update_data.items():
                 if hasattr(company, field):
-                    setattr(company, field, value)
+                    safe_setattr(company, field, value)
             
-            setattr(company, 'updated_at', datetime.utcnow())
+            # Update timestamp if column exists
+            if has_column('companies', 'updated_at'):
+                safe_setattr(company, 'updated_at', datetime.utcnow())
             
             db.commit()
             db.refresh(company)
@@ -136,12 +141,12 @@ class CompanyService:
         user_count = 0  # Placeholder until User relationship is fully set up
         
         data = {
-            "id": getattr(company, 'id'),
-            "name": getattr(company, 'name'),
-            "country": getattr(company, 'country'),
-            "currency_code": getattr(company, 'currency_code'),
-            "created_at": getattr(company, 'created_at').isoformat(),
-            "updated_at": getattr(company, 'updated_at').isoformat() if getattr(company, 'updated_at', None) else None,
+            "id": safe_getattr(company, 'id'),
+            "name": safe_getattr(company, 'name'),
+            "country": safe_getattr(company, 'country'),
+            "currency_code": safe_getattr(company, 'currency_code'),
+            "created_at": (lambda x: x.isoformat() if x is not None else datetime.utcnow().isoformat())(safe_getattr(company, 'created_at')),
+            "updated_at": (lambda x: x.isoformat() if x is not None else None)(safe_getattr(company, 'updated_at')),
             "user_count": user_count
         }
         
