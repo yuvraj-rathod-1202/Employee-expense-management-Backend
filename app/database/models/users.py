@@ -30,4 +30,6 @@ class User(Base):
     
     manager = relationship("User", remote_side=[id])
     expenses = relationship("Expense", back_populates="user", cascade="all, delete-orphan")
+    approval_rule = relationship("ApprovalRule", back_populates="user", uselist=False)
+    company = relationship("Company", back_populates="users")
     
