@@ -279,6 +279,176 @@ class ExpenseApprovalService:
         return True
     
     @staticmethod
+    def _can_manager_approve_now(db: Session, expense_id: int, manager_id: int, approval: ExpenseApproval) -> bool:
+        """Check if a specific manager can approve an expense now based on sequential rules"""
+        try:
+            # Get the approval rule for this expense
+            expense = db.query(Expense).filter(Expense.id == expense_id).first()
+            if not expense:
+                return False
+            
+            approval_rule = db.query(ApprovalRule).filter(
+                ApprovalRule.user_id == getattr(expense, 'submitted_by')
+            ).first()
+            
+            if not approval_rule:
+                return True  # No rules, can approve
+            
+            # If this is a manager approval and manager approval is required first
+            is_manager_approval = getattr(approval, 'is_manager_approval', False)
+            is_manager_approver = getattr(approval_rule, 'is_manager_approver', False)
+            
+            if is_manager_approval and is_manager_approver:
+                return True  # Manager can always approve when manager approval is required
+            
+            # If manager approval is required but not completed yet, non-managers cannot approve
+            if is_manager_approver and not is_manager_approval:
+                manager_approval = db.query(ExpenseApproval).filter(
+                    and_(
+                        ExpenseApproval.expense_id == expense_id,
+                        ExpenseApproval.is_manager_approval == True,
+                        ExpenseApproval.status == "approved"
+                    )
+                ).first()
+                
+                if not manager_approval:
+                    return False  # Manager hasn't approved yet
+            
+            # For sequential approval, check if this approver's turn
+            approver_sequence = getattr(approval_rule, 'approver_sequence', 1)
+            if approver_sequence == 1:  # Sequential
+                # Get all approvals for this expense, ordered by sequence
+                all_approvals = db.query(ExpenseApproval).filter(
+                    and_(
+                        ExpenseApproval.expense_id == expense_id,
+                        ExpenseApproval.is_manager_approval == False
+                    )
+                ).order_by(ExpenseApproval.sequence_order).all()
+                
+                current_sequence = getattr(approval, 'sequence_order', 1)
+                
+                # Check if all previous approvals are completed
+                for prev_approval in all_approvals:
+                    prev_sequence = getattr(prev_approval, 'sequence_order', 1)
+                    if prev_sequence < current_sequence:
+                        if getattr(prev_approval, 'status') != "approved":
+                            return False  # Previous approval not completed
+                
+            return True
+            
+        except Exception as e:
+            # On error, allow approval (fail open)
+            return True
+    
+    @staticmethod
+    def _auto_approve_expense(db: Session, expense_id: int):
+        """Auto-approve an expense when percentage threshold is met"""
+        try:
+            expense = db.query(Expense).filter(Expense.id == expense_id).first()
+            if not expense:
+                return
+            
+            # Update expense status to approved
+            safe_setattr(expense, 'status', 'approved')
+            safe_setattr(expense, 'updated_at', datetime.utcnow())
+            
+            # Update all pending approvals to auto-approved
+            pending_approvals = db.query(ExpenseApproval).filter(
+                and_(
+                    ExpenseApproval.expense_id == expense_id,
+                    ExpenseApproval.status == "pending"
+                )
+            ).all()
+            
+            for approval in pending_approvals:
+                safe_setattr(approval, 'status', 'auto_approved')
+                safe_setattr(approval, 'approved_at', datetime.utcnow())
+                safe_setattr(approval, 'comments', 'Auto-approved due to minimum percentage threshold met')
+            
+            db.commit()
+            
+        except Exception as e:
+            db.rollback()
+            # Log error but don't raise to avoid breaking the main flow
+            pass
+    
+    @staticmethod
+    def approve_expense(db: Session, expense_id: int, approver_id: int, comments: Optional[str] = None) -> ExpenseApprovalStatusResponse:
+        """Approve an expense by a specific approver"""
+        try:
+            # Find the pending approval for this approver and expense
+            approval = db.query(ExpenseApproval).filter(
+                and_(
+                    ExpenseApproval.expense_id == expense_id,
+                    ExpenseApproval.approver_id == approver_id,
+                    ExpenseApproval.status == "pending"
+                )
+            ).first()
+            
+            if not approval:
+                raise ValidationError(f"No pending approval found for expense {expense_id} and approver {approver_id}")
+            
+            # Check if this approver can approve now (sequential logic)
+            can_approve = ExpenseApprovalService._can_manager_approve_now(db, expense_id, approver_id, approval)
+            if not can_approve:
+                raise ValidationError("Cannot approve at this time. Previous approvals may be required first.")
+            
+            # Update the approval
+            safe_setattr(approval, 'status', 'approved')
+            safe_setattr(approval, 'approved_at', datetime.utcnow())
+            if comments:
+                safe_setattr(approval, 'comments', comments)
+            
+            db.commit()
+            
+            # Return updated status
+            return ExpenseApprovalService.check_expense_approval_status(db, expense_id)
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            db.rollback()
+            raise DatabaseError(f"Failed to approve expense: {str(e)}")
+    
+    @staticmethod
+    def reject_expense(db: Session, expense_id: int, approver_id: int, comments: str) -> ExpenseApprovalStatusResponse:
+        """Reject an expense by a specific approver"""
+        try:
+            # Find the pending approval for this approver and expense
+            approval = db.query(ExpenseApproval).filter(
+                and_(
+                    ExpenseApproval.expense_id == expense_id,
+                    ExpenseApproval.approver_id == approver_id,
+                    ExpenseApproval.status == "pending"
+                )
+            ).first()
+            
+            if not approval:
+                raise ValidationError(f"No pending approval found for expense {expense_id} and approver {approver_id}")
+            
+            # Update the approval
+            safe_setattr(approval, 'status', 'rejected')
+            safe_setattr(approval, 'approved_at', datetime.utcnow())
+            safe_setattr(approval, 'comments', comments)
+            
+            # Update expense status to rejected
+            expense = db.query(Expense).filter(Expense.id == expense_id).first()
+            if expense:
+                safe_setattr(expense, 'status', 'rejected')
+                safe_setattr(expense, 'updated_at', datetime.utcnow())
+            
+            db.commit()
+            
+            # Return updated status
+            return ExpenseApprovalService.check_expense_approval_status(db, expense_id)
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            db.rollback()
+            raise DatabaseError(f"Failed to reject expense: {str(e)}")
+    
+    @staticmethod
     def _build_approval_status_response(
         expense: Expense, 
         approvals: List[ExpenseApproval], 
@@ -350,8 +520,14 @@ class ExpenseApprovalService:
             ExpenseApprovalService._check_sequential_requirements(approvals, approval_rule)
         )
         
+        # Auto-approve if threshold is met and expense is not already approved
         expense_id = getattr(expense, 'id', 0)
         current_status = getattr(expense, 'status', 'pending')
+        
+        if is_fully_approved and current_status != 'approved':
+            ExpenseApprovalService._auto_approve_expense(db, expense_id)
+            current_status = 'approved'
+        
         approver_sequence = getattr(approval_rule, 'approver_sequence', 1)
         
         return ExpenseApprovalStatusResponse(
@@ -424,7 +600,7 @@ class ExpenseApprovalService:
     
     @staticmethod
     def get_manager_pending_reviews(db: Session, manager_id: int) -> ManagerPendingRequestsResponse:
-        """Get all expenses pending review by a specific manager/approver"""
+        """Get all expenses pending review by a specific manager/approver (only those that can be approved now)"""
         try:
             # Get all expense approvals where this user is the approver and status is pending
             pending_approvals = db.query(ExpenseApproval).options(
@@ -447,11 +623,23 @@ class ExpenseApprovalService:
                     continue
                 
                 submitted_by_user = getattr(expense, 'submitted_by_user', None)
-                
-                # Check if this approval can be processed now (for sequential approvals)
                 expense_id = getattr(expense, 'id', 0)
+                
+                # First check if expense should be auto-approved based on percentage
                 approval_status = ExpenseApprovalService.check_expense_approval_status(db, expense_id)
-                can_approve_now = approval_status.can_proceed_to_next_step
+                if approval_status.is_fully_approved:
+                    # Auto-approve this expense and continue
+                    ExpenseApprovalService._auto_approve_expense(db, expense_id)
+                    continue
+                
+                # Check if this specific approval can be processed now
+                can_approve_now = ExpenseApprovalService._can_manager_approve_now(
+                    db, expense_id, manager_id, approval
+                )
+                
+                # Only show approvals that can be processed now
+                if not can_approve_now:
+                    continue
                 
                 # Check if urgent (more than 3 days old)
                 created_at = getattr(expense, 'created_at', datetime.utcnow())

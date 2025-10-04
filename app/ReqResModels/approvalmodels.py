@@ -48,6 +48,34 @@ class CreateApprovalRuleRequest(BaseModel):
 
 class UpdateApprovalRuleRequest(BaseModel):
     description: Optional[str] = Field(None, min_length=1, max_length=1000)
+    manager_id: Optional[int] = Field(None, description="Override default manager")
+    approvers: Optional[List[CreateApproverRequest]] = None
+    
+    
+
+class ApproveExpenseRequest(BaseModel):
+    """Request model for approving an expense"""
+    approver_id: int = Field(..., description="ID of the approver")
+    comments: Optional[str] = Field(None, max_length=500, description="Optional approval comments")
+    
+    @field_validator('approver_id', mode='before')
+    @classmethod
+    def parse_approver_id(cls, v):
+        if isinstance(v, str):
+            return int(v)
+        return v
+
+class RejectExpenseRequest(BaseModel):
+    """Request model for rejecting an expense"""
+    approver_id: int = Field(..., description="ID of the approver")
+    comments: str = Field(..., min_length=1, max_length=500, description="Required rejection comments")
+    
+    @field_validator('approver_id', mode='before')
+    @classmethod
+    def parse_approver_id(cls, v):
+        if isinstance(v, str):
+            return int(v)
+        return v
     manager_id: Optional[int] = Field(None, gt=0)
     is_manager_approver: Optional[bool] = None
     approver_sequence: Optional[ApprovalSequence] = None

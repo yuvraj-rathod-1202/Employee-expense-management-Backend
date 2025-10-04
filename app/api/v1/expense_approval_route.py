@@ -7,7 +7,9 @@ from app.ReqResModels.approvalmodels import (
     ExpenseApprovalStatusResponse,
     ApprovalRuleErrorResponse,
     UserPendingRequestsResponse,
-    ManagerPendingRequestsResponse
+    ManagerPendingRequestsResponse,
+    ApproveExpenseRequest,
+    RejectExpenseRequest
 )
 from app.logic.exceptions import (
     ValidationError,
@@ -147,4 +149,58 @@ def get_admin_pending_reviews(
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving admin pending reviews: {str(e)}"
+        )
+
+@router.post(
+    "/approve/{expense_id}",
+    response_model=ExpenseApprovalStatusResponse,
+    summary="Approve an expense",
+    description="Approve an expense as a specific approver"
+)
+def approve_expense(
+    expense_id: int,
+    request: ApproveExpenseRequest,
+    db: Session = Depends(get_db)
+):
+    """Approve an expense"""
+    try:
+        return ExpenseApprovalService.approve_expense(
+            db, expense_id, request.approver_id, request.comments
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error approving expense: {str(e)}"
+        )
+
+@router.post(
+    "/reject/{expense_id}",
+    response_model=ExpenseApprovalStatusResponse,
+    summary="Reject an expense",
+    description="Reject an expense as a specific approver"
+)
+def reject_expense(
+    expense_id: int,
+    request: RejectExpenseRequest,
+    db: Session = Depends(get_db)
+):
+    """Reject an expense"""
+    try:
+        return ExpenseApprovalService.reject_expense(
+            db, expense_id, request.approver_id, request.comments
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error rejecting expense: {str(e)}"
         )
