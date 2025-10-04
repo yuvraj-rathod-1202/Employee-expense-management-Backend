@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Numeric, String, ForeignKey, Text, Date
+from sqlalchemy import Column, Integer, Numeric, String, ForeignKey, Text, Date, Boolean, TIMESTAMP
 from sqlalchemy.orm import relationship
 from app.database.databse import Base
 from datetime import datetime
@@ -16,21 +16,40 @@ class Expense(Base):
     description = Column(Text)
     remarks = Column(Text, default=None)
     expense_date = Column(Date, nullable=False)
-    status = Column(String(50), nullable=False, default="pending")
-    created_at = Column(Date, default=datetime.utcnow)
+    status = Column(String(50), nullable=False, default="pending")  # pending, approved, rejected, in_progress
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, nullable=True)
     
-    employee = relationship("User", back_populates="expenses")
+    # Relationships
+    submitted_by_user = relationship("User", foreign_keys=[submitted_by])
+    paid_by_user = relationship("User", foreign_keys=[paid_by])
     receipts = relationship("ExpenseReceipt", back_populates="expense", cascade="all, delete-orphan")
     approvals = relationship("ExpenseApproval", back_populates="expense", cascade="all, delete-orphan")
-    paid_by_user = relationship("User", foreign_keys=[paid_by])
-    submitted_by_user = relationship("User", foreign_keys=[submitted_by])
     
 class ExpenseReceipt(Base):
     __tablename__ = "expense_receipts"
     
     id = Column(Integer, primary_key=True, index=True)
     expense_id = Column(Integer, ForeignKey("expenses.id", ondelete="CASCADE"), nullable=False)
-    file_url = Column(String(255), nullable=False)
-    created_at = Column(Date, default=datetime.utcnow)
+    status = Column(String(50), nullable=False, default="pending")  # pending, approved, rejected
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
     
-    expenses = relationship("Expense", back_populates="receipts")
+    expense = relationship("Expense", back_populates="receipts")
+
+class ExpenseApproval(Base):
+    __tablename__ = "expense_approvals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    expense_id = Column(Integer, ForeignKey("expenses.id", ondelete="CASCADE"), nullable=False)
+    approver_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    approval_step_id = Column(Integer, ForeignKey("approval_steps.id"), nullable=True)  # Reference to approval step
+    status = Column(String(50), nullable=False, default="pending")  # pending, approved, rejected
+    sequence_order = Column(Integer, nullable=False, default=1)
+    is_manager_approval = Column(Boolean, default=False)
+    comments = Column(Text, nullable=True)
+    approved_at = Column(TIMESTAMP, nullable=True)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    
+    expense = relationship("Expense", back_populates="approvals")
+    approver = relationship("User")
+    approval_step = relationship("ApprovalStep")

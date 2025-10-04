@@ -28,10 +28,10 @@ class User(Base):
     manager_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, nullable=True)
-    # approval_rule_id = Column(Integer, ForeignKey("approval_rules.id"), nullable=True)
+    approval_rule_id = Column(Integer, ForeignKey("approval_rules.id"), nullable=True)
     
+    # Relationships
     manager = relationship("User", remote_side=[id])
-    # expenses = relationship("Expense", back_populates="user", cascade="all, delete-orphan")
-    # approval_rule = relationship("ApprovalRule", back_populates="user", uselist=False")
+    approval_rule = relationship("ApprovalRule", foreign_keys="ApprovalRule.user_id", back_populates="user", uselist=False)
     company = relationship("Company", back_populates="users")
     

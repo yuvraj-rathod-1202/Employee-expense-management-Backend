@@ -1,6 +1,8 @@
 from sqlalchemy import text, inspect, MetaData
 from app.database.databse import engine, Base
 from app.database.models.users import User, Company
+from app.database.models.approval import ApprovalRule, ApprovalStep
+from app.database.models.expense import Expense, ExpenseReceipt, ExpenseApproval
 import logging
 
 # Global cache for column existence checks
@@ -43,6 +45,7 @@ def check_and_add_missing_columns():
         # Check and add missing columns for users table
         expected_user_columns = {
             'updated_at': 'TIMESTAMP',
+            'approval_rule_id': 'INTEGER',
         }
         
         for col_name, col_type in expected_user_columns.items():
@@ -56,8 +59,25 @@ def check_and_add_missing_columns():
         
         for col_name, col_type in expected_company_columns.items():
             add_column_if_not_exists('companies', col_name, col_type)
+        
+        # Check and add missing columns for approval_rules table
+        expected_approval_columns = {
+            'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+            'updated_at': 'TIMESTAMP',
+        }
+        
+        for col_name, col_type in expected_approval_columns.items():
+            add_column_if_not_exists('approval_rules', col_name, col_type)
+        
+        # Check and add missing columns for expenses table
+        expected_expense_columns = {
+            'updated_at': 'TIMESTAMP',
+        }
+        
+        for col_name, col_type in expected_expense_columns.items():
+            add_column_if_not_exists('expenses', col_name, col_type)
             
-        print("Column verification completed")
+        print("✅ Column verification completed")
             
     except Exception as e:
         print(f"Error checking database schema: {e}")
