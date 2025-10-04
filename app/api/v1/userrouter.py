@@ -15,6 +15,7 @@ from app.ReqResModels.usermodels import (
     UserDetailResponse,
     UserListResponse,
     UserStatsResponse,
+    UserManagersListResponse,
     UserErrorResponse,
     UserRole,
 )
@@ -72,6 +73,43 @@ def create_user(
             status_code=http_status.HTTP_400_BAD_REQUEST,
             detail=e.message
         )
+    except DatabaseError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=e.message
+        )
+
+@router.get(
+    "/managers",
+    response_model=UserManagersListResponse,
+    summary="Get all managers",
+    description="Retrieve all users who are managers (have manager role or have subordinates)"
+)
+def get_managers(
+    company_id: Optional[int] = Query(None, description="Filter by company ID"),
+    db: Session = Depends(get_db)
+):
+    """Get all managers"""
+    try:
+        return UserService.get_all_managers(db, company_id)
+    except DatabaseError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=e.message
+        )
+
+@router.get(
+    "/stats/overview",
+    response_model=UserStatsResponse,
+    summary="Get user statistics",
+    description="Get overview statistics for all users"
+)
+def get_user_stats(
+    db: Session = Depends(get_db)
+):
+    """Get user statistics"""
+    try:
+        return UserService.get_user_stats(db)
     except DatabaseError as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -284,20 +322,3 @@ def get_users_by_company(
             detail=e.message
         )
 
-@router.get(
-    "/stats/overview",
-    response_model=UserStatsResponse,
-    summary="Get user statistics",
-    description="Get overview statistics for all users"
-)
-def get_user_stats(
-    db: Session = Depends(get_db)
-):
-    """Get user statistics"""
-    try:
-        return UserService.get_user_stats(db)
-    except DatabaseError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=e.message
-        )

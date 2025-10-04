@@ -81,6 +81,13 @@ class UserManagerResponse(BaseModel):
     name: str
     email: str
     role: str
+    company_id: int
+    company_name: Optional[str] = None
+    subordinates_count: int = 0
+
+class UserManagersListResponse(BaseModel):
+    managers: List[UserManagerResponse]
+    total: int
 
 class UserDetailResponse(UserResponse):
     company: Optional[UserCompanyResponse] = None

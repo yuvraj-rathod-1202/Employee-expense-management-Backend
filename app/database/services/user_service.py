@@ -18,7 +18,8 @@ from app.ReqResModels.usermodels import (
     UserStatsResponse,
     UserDetailResponse,
     UserCompanyResponse,
-    UserManagerResponse
+    UserManagerResponse,
+    UserManagersListResponse
 )
 from app.logic.exceptions import (
     UserNotFoundError,
@@ -249,7 +250,81 @@ class UserService:
         return UserService.get_users(db, params)
     
     @staticmethod
+    def get_all_managers(db: Session, company_id: Optional[int] = None) -> UserManagersListResponse:
+        """Get all users who are managers (have subordinates or have manager role)"""
+        try:
+            # Query for users who are either:
+            # 1. Have manager role
+            # 2. Have subordinates (other users reporting to them)
+            query = db.query(User).options(joinedload(User.company))
+            
+            # Filter by company if provided
+            if company_id:
+                query = query.filter(User.company_id == company_id)
+            
+            # Get users who are managers by role or have subordinates
+            manager_subquery = db.query(User.manager_id).filter(User.manager_id.isnot(None)).distinct().subquery()
+            
+            # Users who have manager role OR are referenced as managers by other users
+            managers_query = query.filter(
+                or_(
+                    User.role.in_(['manager', 'admin', 'hr']),  # Manager roles
+                    User.id.in_(db.query(manager_subquery.c.manager_id))  # Users who are managers of others
+                )
+            ).order_by(User.name)
+            
+            managers = managers_query.all()
+            
+            # Convert to response format
+            manager_responses = []
+            for manager in managers:
+                subordinates_count = db.query(User).filter(User.manager_id == manager.id).count()
+                manager_data = {
+                    "id": safe_getattr(manager, 'id'),
+                    "name": safe_getattr(manager, 'name'),
+                    "email": safe_getattr(manager, 'email'),
+                    "role": safe_getattr(manager, 'role'),
+                    "company_id": safe_getattr(manager, 'company_id'),
+                    "company_name": safe_getattr(manager.company, 'name', None) if hasattr(manager, 'company') and manager.company else None,
+                    "subordinates_count": subordinates_count
+                }
+                manager_responses.append(manager_data)
+            
+            return UserManagersListResponse(
+                managers=[UserManagerResponse(**data) for data in manager_responses],
+                total=len(manager_responses)
+            )
+            
+        except Exception as e:
+            raise DatabaseError(f"Failed to get managers: {str(e)}")
+    
+    @staticmethod
     def get_user_stats(db: Session) -> UserStatsResponse:
+        """Get user statistics"""
+        try:
+            total_users = db.query(User).count()
+            
+            # Get users by role
+            users_by_role = {}
+            for role in ['admin', 'manager', 'employee', 'hr']:
+                count = db.query(User).filter(User.role == role).count()
+                users_by_role[role] = count
+            
+            # Get users by company
+            users_by_company = {}
+            companies = db.query(Company).all()
+            for company in companies:
+                count = db.query(User).filter(User.company_id == company.id).count()
+                users_by_company[company.name] = count
+            
+            return UserStatsResponse(
+                total_users=total_users,
+                users_by_role=users_by_role,
+                users_by_company=users_by_company
+            )
+            
+        except Exception as e:
+            raise DatabaseError(f"Failed to get user stats: {str(e)}")
         """Get user statistics"""
         total_users = db.query(User).count()
         
@@ -306,10 +381,13 @@ class UserService:
         manager_data = None
         if hasattr(user, 'manager') and user.manager:
             manager_data = UserManagerResponse(
-                id=getattr(user.manager, 'id'),
-                name=getattr(user.manager, 'name'),
-                email=getattr(user.manager, 'email'),
-                role=getattr(user.manager, 'role')
+                id=getattr(user.manager, 'id', 0),
+                name=getattr(user.manager, 'name', ''),
+                email=getattr(user.manager, 'email', ''),
+                role=getattr(user.manager, 'role', ''),
+                company_id=getattr(user.manager, 'company_id', 0),
+                company_name=getattr(user.manager.company, 'name', None) if hasattr(user.manager, 'company') and user.manager.company else None,
+                subordinates_count=db.query(User).filter(User.manager_id == user.manager.id).count()
             )
         
         # Create base response
